@@ -13,11 +13,10 @@ from typing import List, Optional
 import sqlite3
 from contextlib import contextmanager
 
-app = FastAPI(
-    title="Simple Todo API",
-    description="Basic Todo list management API using FastAPI + SQLite",
-    version="1.0.0"
-)
+import uvicorn
+from fastapi_mcp import FastApiMCP
+
+app = FastAPI(title="Simple Todo API", description="Basic Todo list management API using FastAPI + SQLite",version="1.0.0")
 
 DATABASE = "todos.db"
 
@@ -71,7 +70,7 @@ def root():
     """Returns a simple welcome message."""
     return {"message": "Welcome to the Todo API! Visit /docs for interactive documentation."}
 
-@app.get("/todos", response_model=List[TodoOut], summary="Get all todos")
+@app.get("/todos", response_model=List[TodoOut], summary="Get all todos", operation_id="get_all_todos")
 def get_all_todos():
     """Retrieve the complete list of todos."""
     with get_db() as conn:
@@ -80,7 +79,7 @@ def get_all_todos():
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
 
-@app.get("/todos/{todo_id}", response_model=TodoOut, summary="Get a single todo")
+@app.get("/todos/{todo_id}", response_model=TodoOut, summary="Get a single todo", operation_id="get_todo")
 def get_todo(todo_id: int):
     """Fetch a specific todo by its ID."""
     with get_db() as conn:
@@ -95,7 +94,8 @@ def get_todo(todo_id: int):
     "/todos",
     response_model=TodoOut,
     status_code=status.HTTP_201_CREATED,
-    summary="Create a new todo"
+    summary="Create a new todo",
+    operation_id="create_todo"
 )
 def create_todo(todo: TodoCreate):
     """Add a new todo item."""
@@ -112,7 +112,7 @@ def create_todo(todo: TodoCreate):
         row = cursor.fetchone()
         return dict(row)
 
-@app.patch("/todos/{todo_id}", response_model=TodoOut, summary="Update a todo")
+@app.patch("/todos/{todo_id}", response_model=TodoOut, summary="Update a todo", operation_id="update_todo")
 def update_todo(todo_id: int, todo_update: TodoUpdate):
     """Partially update a todo (content and/or completed status)."""
     if todo_update.content is None and todo_update.completed is None:
@@ -145,7 +145,8 @@ def update_todo(todo_id: int, todo_update: TodoUpdate):
 @app.delete(
     "/todos/{todo_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete a todo"
+    summary="Delete a todo",
+    operation_id= "delete_todo"
 )
 def delete_todo(todo_id: int):
     """Remove a todo by its ID."""
@@ -156,3 +157,16 @@ def delete_todo(todo_id: int):
             raise HTTPException(status_code=404, detail="Todo not found")
         conn.commit()
     return None
+
+
+# Mount MCP at /mcp so clients (e.g. Cursor, mcp-remote) can connect
+mcp = FastApiMCP(
+    app,
+    name="todo_api",
+    include_operations=["get_all_todos", "get_todo", "create_todo", "update_todo", "delete_todo"],
+)
+mcp.mount_http()  # exposes GET/POST at /mcp (Streamable HTTP transport)
+
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
